@@ -1,6 +1,8 @@
 {
   "name": "jdm-parts-hub",
   "version": "1.0.0",
+  "description": "JDM Parts Hub E-commerce Website",
+  "main": "server.js",
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js"
@@ -9,6 +11,6 @@
     "express": "^4.18.2"
   },
   "engines": {
-    "node": "18.x"
+    "node": ">=24.x"
   }
 }
