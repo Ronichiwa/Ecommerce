@@ -652,6 +652,29 @@
             text-align: center;
             padding: 40px;
         }
+        
+        /* Status Badges */
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-completed {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-cancelled {
+            background: #f8d7da;
+            color: #721c24;
+        }
     </style>
 </head>
 <body>
@@ -927,6 +950,7 @@
                         <div class="admin-tab active" data-tab="products">Products</div>
                         <div class="admin-tab" data-tab="orders">Orders</div>
                         <div class="admin-tab" data-tab="add-product">Add Product</div>
+                        <div class="admin-tab" data-tab="users">Users</div>
                     </div>
                     
                     <div class="admin-content active" id="products-tab">
@@ -955,7 +979,10 @@
                     <div class="admin-content" id="orders-tab">
                         <h3>Order Management</h3>
                         <div id="orders-list">
-                            <p>No orders yet. Orders will appear here once customers place them.</p>
+                            <div class="loading">
+                                <div class="spinner"></div>
+                                <p>Loading orders...</p>
+                            </div>
                         </div>
                     </div>
                     
@@ -993,11 +1020,21 @@
                             
                             <div class="form-group">
                                 <label for="productImage">Image URL</label>
-                                <input type="text" id="productImage" placeholder="Paste Google image link here" required>
+                                <input type="text" id="productImage" placeholder="Paste image link here" required>
                             </div>
                             
-                            <button type="submit" class="form-submit">Add Product</button>
+                            <button type="submit" class="form-submit" id="addProductBtn">Add Product</button>
                         </form>
+                    </div>
+                    
+                    <div class="admin-content" id="users-tab">
+                        <h3>User Management</h3>
+                        <div id="users-list">
+                            <div class="loading">
+                                <div class="spinner"></div>
+                                <p>Loading users...</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1035,14 +1072,14 @@
     
     <script>
         // ==================== FIREBASE CONFIGURATION ====================
-        // Replace with your Firebase configuration
+        // Your Firebase configuration
         const firebaseConfig = {
-            apiKey: "YOUR_API_KEY",
-            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_PROJECT_ID.appspot.com",
-            messagingSenderId: "YOUR_SENDER_ID",
-            appId: "YOUR_APP_ID"
+            apiKey: "AIzaSyAf8e_YPwoIBnolbZ1GeHWRSIa0ctedyUc",
+            authDomain: "jdmparts-914d0.firebaseapp.com",
+            projectId: "jdmparts-914d0",
+            storageBucket: "jdmparts-914d0.firebasestorage.app",
+            messagingSenderId: "552380231172",
+            appId: "1:552380231172:web:8496ecdb1f75e869628f51"
         };
 
         // Initialize Firebase
@@ -1082,6 +1119,7 @@
         const toast = document.getElementById('toast');
         const adminTabs = document.querySelectorAll('.admin-tab');
         const addProductForm = document.getElementById('addProductForm');
+        const addProductBtn = document.getElementById('addProductBtn');
         
         // ==================== INITIALIZE APPLICATION ====================
         async function init() {
@@ -1100,7 +1138,7 @@
                     await loadUserData(user.uid);
                     
                     updateUserInterface();
-                    showToast('Welcome back!');
+                    showToast('Welcome back!', 'success');
                 } else {
                     // User is signed out
                     currentUser = null;
@@ -1118,11 +1156,33 @@
             // Load products from Firestore
             await loadProducts();
             
+            // Set up real-time listener for products
+            setupProductsListener();
+            
             // Set up event listeners
             setupEventListeners();
         }
         
         // ==================== FIREBASE FUNCTIONS ====================
+        
+        // Set up real-time listener for products
+        function setupProductsListener() {
+            productsCollection.onSnapshot((snapshot) => {
+                products = [];
+                snapshot.forEach(doc => {
+                    products.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
+                });
+                
+                // Update product displays
+                renderProducts();
+                renderAdminProducts();
+            }, (error) => {
+                console.error("Error listening to products:", error);
+            });
+        }
         
         // Check if user is admin
         async function checkIfAdmin(userId) {
@@ -1157,10 +1217,6 @@
         // Load products from Firestore
         async function loadProducts() {
             try {
-                showLoading('products-grid');
-                showLoading('home-products');
-                showLoading('admin-products-table');
-                
                 const snapshot = await productsCollection.get();
                 products = [];
                 
@@ -1175,11 +1231,6 @@
                 renderProducts();
                 renderAdminProducts();
                 
-                // Hide loading spinners
-                hideLoading('products-grid');
-                hideLoading('home-products');
-                hideLoading('admin-products-table');
-                
             } catch (error) {
                 console.error("Error loading products:", error);
                 showToast('Error loading products', 'error');
@@ -1191,7 +1242,10 @@
             try {
                 if (productId) {
                     // Update existing product
-                    await productsCollection.doc(productId).update(productData);
+                    await productsCollection.doc(productId).update({
+                        ...productData,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
                 } else {
                     // Add new product
                     await productsCollection.add({
@@ -1201,12 +1255,10 @@
                     });
                 }
                 
-                // Reload products
-                await loadProducts();
                 return true;
             } catch (error) {
                 console.error("Error saving product:", error);
-                showToast('Error saving product', 'error');
+                showToast('Error saving product: ' + error.message, 'error');
                 return false;
             }
         }
@@ -1215,7 +1267,6 @@
         async function deleteProductFromFirestore(productId) {
             try {
                 await productsCollection.doc(productId).delete();
-                await loadProducts();
                 return true;
             } catch (error) {
                 console.error("Error deleting product:", error);
@@ -1261,16 +1312,24 @@
                 snapshot.forEach(doc => {
                     const order = doc.data();
                     const orderDate = order.createdAt ? order.createdAt.toDate().toLocaleDateString() : 'N/A';
+                    const itemsCount = order.items ? order.items.length : 0;
                     
                     ordersHtml += `
-                        <div class="order-item" style="background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
-                            <h4>Order #JDM-${doc.id.substring(0, 8)}</h4>
+                        <div class="order-item" style="background: white; padding: 20px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <h4 style="margin: 0;">Order #JDM-${doc.id.substring(0, 8)}</h4>
+                                <span class="status-badge status-${order.status}">${order.status}</span>
+                            </div>
                             <p><strong>Customer:</strong> ${order.userName} (${order.userEmail})</p>
                             <p><strong>Date:</strong> ${orderDate}</p>
-                            <p><strong>Status:</strong> <span style="color: ${order.status === 'pending' ? 'orange' : order.status === 'completed' ? 'green' : 'red'}">${order.status}</span></p>
-                            <p><strong>Total:</strong> $${order.total.toFixed(2)}</p>
-                            <button onclick="updateOrderStatus('${doc.id}', 'completed')" style="background: var(--success); color: white; border: none; padding: 5px 10px; border-radius: 4px; margin-right: 5px;">Mark Complete</button>
-                            <button onclick="updateOrderStatus('${doc.id}', 'cancelled')" style="background: var(--danger); color: white; border: none; padding: 5px 10px; border-radius: 4px;">Cancel</button>
+                            <p><strong>Items:</strong> ${itemsCount} items</p>
+                            <p><strong>Total:</strong> $${order.total ? order.total.toFixed(2) : '0.00'}</p>
+                            <p><strong>Payment:</strong> ${order.paymentMethod || 'Not specified'}</p>
+                            <div style="margin-top: 15px;">
+                                <button onclick="updateOrderStatus('${doc.id}', 'completed')" style="background: var(--success); color: white; border: none; padding: 8px 15px; border-radius: 4px; margin-right: 5px; cursor: pointer;">Mark Complete</button>
+                                <button onclick="updateOrderStatus('${doc.id}', 'cancelled')" style="background: var(--danger); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">Cancel</button>
+                                <button onclick="viewOrderDetails('${doc.id}')" style="background: var(--primary); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">View Details</button>
+                            </div>
                         </div>
                     `;
                 });
@@ -1279,7 +1338,78 @@
                 
             } catch (error) {
                 console.error("Error loading orders:", error);
-                document.getElementById('orders-list').innerHTML = '<p>Error loading orders. Please try again.</p>';
+                ordersList.innerHTML = '<p style="color: var(--danger);">Error loading orders. Please try again.</p>';
+            }
+        }
+        
+        // Load users from Firestore (admin only)
+        async function loadUsers() {
+            try {
+                const usersList = document.getElementById('users-list');
+                usersList.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading users...</p></div>';
+                
+                const snapshot = await usersCollection.get();
+                
+                if (snapshot.empty) {
+                    usersList.innerHTML = '<p>No users found.</p>';
+                    return;
+                }
+                
+                let usersHtml = '<table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">';
+                usersHtml += `
+                    <thead>
+                        <tr style="background: #f5f5f5;">
+                            <th style="padding: 12px; text-align: left;">Name</th>
+                            <th style="padding: 12px; text-align: left;">Email</th>
+                            <th style="padding: 12px; text-align: left;">Admin</th>
+                            <th style="padding: 12px; text-align: left;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                `;
+                
+                snapshot.forEach(doc => {
+                    const user = doc.data();
+                    usersHtml += `
+                        <tr style="border-bottom: 1px solid #eee;">
+                            <td style="padding: 12px;">${user.name || 'N/A'}</td>
+                            <td style="padding: 12px;">${user.email || 'N/A'}</td>
+                            <td style="padding: 12px;">
+                                <span class="status-badge ${user.isAdmin ? 'status-completed' : 'status-pending'}">
+                                    ${user.isAdmin ? 'Yes' : 'No'}
+                                </span>
+                            </td>
+                            <td style="padding: 12px;">
+                                <button onclick="toggleAdminStatus('${doc.id}', ${!user.isAdmin})" style="background: ${user.isAdmin ? 'var(--danger)' : 'var(--success)'}; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                                    ${user.isAdmin ? 'Remove Admin' : 'Make Admin'}
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                usersHtml += '</tbody></table>';
+                usersList.innerHTML = usersHtml;
+                
+            } catch (error) {
+                console.error("Error loading users:", error);
+                usersList.innerHTML = '<p style="color: var(--danger);">Error loading users. Please try again.</p>';
+            }
+        }
+        
+        // Toggle admin status
+        async function toggleAdminStatus(userId, makeAdmin) {
+            try {
+                await usersCollection.doc(userId).update({
+                    isAdmin: makeAdmin,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                showToast(`User ${makeAdmin ? 'made admin' : 'admin rights removed'}`, 'success');
+                await loadUsers();
+            } catch (error) {
+                console.error("Error updating admin status:", error);
+                showToast('Error updating user', 'error');
             }
         }
         
@@ -1291,7 +1421,6 @@
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 
-                await loadOrders();
                 showToast(`Order marked as ${status}`, 'success');
             } catch (error) {
                 console.error("Error updating order:", error);
@@ -1299,21 +1428,52 @@
             }
         }
         
+        // View order details
+        async function viewOrderDetails(orderId) {
+            try {
+                const orderDoc = await ordersCollection.doc(orderId).get();
+                if (orderDoc.exists) {
+                    const order = orderDoc.data();
+                    const orderDate = order.createdAt ? order.createdAt.toDate().toLocaleDateString() : 'N/A';
+                    
+                    let itemsHtml = '';
+                    if (order.items && order.items.length > 0) {
+                        itemsHtml = '<h4>Order Items:</h4><ul>';
+                        order.items.forEach(item => {
+                            itemsHtml += `<li>${item.name} - $${item.price.toFixed(2)} x ${item.quantity}</li>`;
+                        });
+                        itemsHtml += '</ul>';
+                    }
+                    
+                    const details = `
+                        <div style="background: white; padding: 20px; border-radius: 8px; margin-top: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                            <h3>Order Details: JDM-${orderId.substring(0, 8)}</h3>
+                            <p><strong>Status:</strong> <span class="status-badge status-${order.status}">${order.status}</span></p>
+                            <p><strong>Date:</strong> ${orderDate}</p>
+                            <p><strong>Customer:</strong> ${order.userName} (${order.userEmail})</p>
+                            <p><strong>Payment Method:</strong> ${order.paymentMethod || 'Not specified'}</p>
+                            ${itemsHtml}
+                            <p><strong>Subtotal:</strong> $${order.subtotal ? order.subtotal.toFixed(2) : '0.00'}</p>
+                            <p><strong>Shipping:</strong> $${order.shipping ? order.shipping.toFixed(2) : '0.00'}</p>
+                            <p><strong>Total:</strong> $${order.total ? order.total.toFixed(2) : '0.00'}</p>
+                            <h4>Shipping Information:</h4>
+                            <p><strong>Name:</strong> ${order.shippingInfo?.name || 'Not provided'}</p>
+                            <p><strong>Address:</strong> ${order.shippingInfo?.address || 'Not provided'}</p>
+                            <p><strong>City:</strong> ${order.shippingInfo?.city || 'Not provided'}</p>
+                            <p><strong>ZIP Code:</strong> ${order.shippingInfo?.zipCode || 'Not provided'}</p>
+                        </div>
+                    `;
+                    
+                    // Show in a modal or alert
+                    alert(`Order Details:\n\nOrder ID: JDM-${orderId.substring(0, 8)}\nCustomer: ${order.userName}\nTotal: $${order.total?.toFixed(2) || '0.00'}\nStatus: ${order.status}`);
+                }
+            } catch (error) {
+                console.error("Error viewing order details:", error);
+                showToast('Error loading order details', 'error');
+            }
+        }
+        
         // ==================== UI FUNCTIONS ====================
-        
-        function showLoading(elementId) {
-            const element = document.getElementById(elementId);
-            if (element) {
-                element.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading...</p></div>';
-            }
-        }
-        
-        function hideLoading(elementId) {
-            const element = document.getElementById(elementId);
-            if (element && element.querySelector('.loading')) {
-                element.innerHTML = '';
-            }
-        }
         
         function setupEventListeners() {
             // Navigation
@@ -1390,6 +1550,10 @@
                     if (tabId === 'orders' && currentUser && currentUser.isAdmin) {
                         loadOrders();
                     }
+                    
+                    if (tabId === 'users' && currentUser && currentUser.isAdmin) {
+                        loadUsers();
+                    }
                 });
             });
         }
@@ -1432,24 +1596,27 @@
         }
         
         function renderProducts() {
-            const productsGrids = document.querySelectorAll('.products-grid');
+            const homeProductsGrid = document.getElementById('home-products');
+            const productsGrid = document.getElementById('products-grid');
             
-            productsGrids.forEach(grid => {
-                if (grid.id === 'home-products') {
-                    // Show only 4 products on home page
-                    const featuredProducts = products.slice(0, 4);
-                    renderProductGrid(grid, featuredProducts);
-                } else {
-                    renderProductGrid(grid, products);
-                }
-            });
+            // Render home products (limited to 4)
+            if (homeProductsGrid) {
+                renderProductGrid(homeProductsGrid, products.slice(0, 4));
+            }
+            
+            // Render all products
+            if (productsGrid) {
+                renderProductGrid(productsGrid, products);
+            }
         }
         
         function renderProductGrid(grid, productsToRender) {
+            if (!grid) return;
+            
             grid.innerHTML = '';
             
             if (productsToRender.length === 0) {
-                grid.innerHTML = '<p style="grid-column: 1 / -1; text-align: center; padding: 40px;">No products available.</p>';
+                grid.innerHTML = '<p style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--gray);">No products available.</p>';
                 return;
             }
             
@@ -1458,12 +1625,13 @@
                 productCard.className = 'product-card';
                 productCard.innerHTML = `
                     <div class="product-image">
-                        <img src="${product.image}" alt="${product.name}">
+                        <img src="${product.image}" alt="${product.name}" onerror="this.src='https://images.unsplash.com/photo-1563720223485-41b7e8e26e88?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80'">
                     </div>
                     <div class="product-info">
                         <h3>${product.name}</h3>
                         <div class="product-category">${product.category}</div>
-                        <div class="product-price">$${product.price.toFixed(2)}</div>
+                        <p style="font-size: 14px; color: var(--gray); margin: 10px 0;">${product.description ? product.description.substring(0, 60) + '...' : 'No description available'}</p>
+                        <div class="product-price">$${product.price ? product.price.toFixed(2) : '0.00'}</div>
                         <button class="add-to-cart" data-id="${product.id}">Add to Cart</button>
                     </div>
                 `;
@@ -1489,20 +1657,22 @@
         
         function renderAdminProducts() {
             const adminProductsTable = document.getElementById('admin-products-table');
+            if (!adminProductsTable) return;
+            
             adminProductsTable.innerHTML = '';
             
             if (products.length === 0) {
-                adminProductsTable.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px;">No products available.</td></tr>';
+                adminProductsTable.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px; color: var(--gray);">No products available.</td></tr>';
                 return;
             }
             
             products.forEach(product => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td><img src="${product.image}" alt="${product.name}"></td>
+                    <td><img src="${product.image}" alt="${product.name}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;"></td>
                     <td>${product.name}</td>
                     <td>${product.category}</td>
-                    <td>$${product.price.toFixed(2)}</td>
+                    <td>$${product.price ? product.price.toFixed(2) : '0.00'}</td>
                     <td>
                         <button class="action-btn edit-btn" data-id="${product.id}">Edit</button>
                         <button class="action-btn delete-btn" data-id="${product.id}">Delete</button>
@@ -1554,7 +1724,7 @@
                 
                 // Update UI
                 updateCartCount();
-                showToast(`${product.name} added to cart`);
+                showToast(`${product.name} added to cart`, 'success');
             }
         }
         
@@ -1562,6 +1732,8 @@
             const cartItems = document.getElementById('cartItems');
             const cartSummary = document.getElementById('cartSummary');
             const emptyCartMessage = document.getElementById('emptyCartMessage');
+            
+            if (!cartItems || !cartSummary || !emptyCartMessage) return;
             
             if (cart.length === 0) {
                 emptyCartMessage.style.display = 'block';
@@ -1584,7 +1756,7 @@
                 cartItem.className = 'cart-item';
                 cartItem.innerHTML = `
                     <div class="cart-item-image">
-                        <img src="${item.image}" alt="${item.name}">
+                        <img src="${item.image}" alt="${item.name}" onerror="this.src='https://images.unsplash.com/photo-1563720223485-41b7e8e26e88?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80'">
                     </div>
                     <div class="cart-item-details">
                         <div class="cart-item-title">${item.name}</div>
@@ -1663,8 +1835,10 @@
         
         function updateCartCount() {
             const cartCount = document.querySelector('.cart-count');
-            const totalItems = cart.reduce((total, item) => total + item.quantity, 0);
-            cartCount.textContent = totalItems;
+            if (cartCount) {
+                const totalItems = cart.reduce((total, item) => total + item.quantity, 0);
+                cartCount.textContent = totalItems;
+            }
         }
         
         async function handleLogin(e) {
@@ -1676,7 +1850,7 @@
             if (email && password) {
                 try {
                     const userCredential = await auth.signInWithEmailAndPassword(email, password);
-                    showToast('Login successful!');
+                    showToast('Login successful!', 'success');
                     loginForm.reset();
                     showPage('products');
                 } catch (error) {
@@ -1706,6 +1880,11 @@
                 return;
             }
             
+            if (password.length < 6) {
+                showToast('Password must be at least 6 characters', 'error');
+                return;
+            }
+            
             try {
                 const userCredential = await auth.createUserWithEmailAndPassword(email, password);
                 const user = userCredential.user;
@@ -1723,7 +1902,7 @@
                     isAdmin: false
                 });
                 
-                showToast('Registration successful!');
+                showToast('Registration successful!', 'success');
                 registerForm.reset();
                 showPage('products');
             } catch (error) {
@@ -1739,7 +1918,7 @@
                 localStorage.removeItem('cart');
                 updateCartCount();
                 showPage('home');
-                showToast('You have been logged out');
+                showToast('You have been logged out', 'success');
             } catch (error) {
                 console.error("Logout error:", error);
                 showToast('Logout failed', 'error');
@@ -1748,7 +1927,7 @@
         
         function handleContact(e) {
             e.preventDefault();
-            showToast('Message sent! We will get back to you soon.');
+            showToast('Message sent! We will get back to you soon.', 'success');
             contactForm.reset();
         }
         
@@ -1761,6 +1940,17 @@
             const description = document.getElementById('productDescription').value;
             const image = document.getElementById('productImage').value;
             
+            // Validate inputs
+            if (!name || !category || !price || !description || !image) {
+                showToast('Please fill in all fields', 'error');
+                return;
+            }
+            
+            if (price <= 0) {
+                showToast('Price must be greater than 0', 'error');
+                return;
+            }
+            
             const productData = {
                 name,
                 category,
@@ -1769,12 +1959,17 @@
                 image
             };
             
+            // Show loading state
+            const originalText = addProductBtn.textContent;
+            addProductBtn.textContent = 'Saving...';
+            addProductBtn.disabled = true;
+            
             if (editingProductId) {
                 const success = await saveProduct(productData, editingProductId);
                 if (success) {
                     showToast('Product updated successfully!', 'success');
                     editingProductId = null;
-                    document.querySelector('#addProductForm button').textContent = 'Add Product';
+                    addProductBtn.textContent = 'Add Product';
                 }
             } else {
                 const success = await saveProduct(productData);
@@ -1783,7 +1978,10 @@
                 }
             }
             
+            // Reset form and button state
             addProductForm.reset();
+            addProductBtn.textContent = originalText;
+            addProductBtn.disabled = false;
             switchAdminTab('products');
         }
         
@@ -1797,13 +1995,13 @@
                 document.getElementById('productImage').value = product.image;
                 
                 editingProductId = productId;
-                document.querySelector('#addProductForm button').textContent = 'Update Product';
+                addProductBtn.textContent = 'Update Product';
                 switchAdminTab('add-product');
             }
         }
         
         async function deleteProduct(productId) {
-            if (confirm('Are you sure you want to delete this product?')) {
+            if (confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
                 const success = await deleteProductFromFirestore(productId);
                 if (success) {
                     showToast('Product deleted successfully!', 'success');
@@ -1822,6 +2020,17 @@
                 return;
             }
             
+            // Get shipping info
+            const fullName = document.getElementById('fullName').value;
+            const address = document.getElementById('address').value;
+            const city = document.getElementById('city').value;
+            const zipCode = document.getElementById('zipCode').value;
+            
+            if (!fullName || !address || !city || !zipCode) {
+                showToast('Please fill in all shipping information', 'error');
+                return;
+            }
+            
             // Calculate order total
             const subtotal = cart.reduce((total, item) => total + (item.price * item.quantity), 0);
             const shipping = 10.00;
@@ -1835,12 +2044,16 @@
                 total: total,
                 paymentMethod: selectedPaymentMethod,
                 shippingInfo: {
-                    name: document.getElementById('fullName').value || 'Not provided',
-                    address: document.getElementById('address').value || 'Not provided',
-                    city: document.getElementById('city').value || 'Not provided',
-                    zipCode: document.getElementById('zipCode').value || 'Not provided'
+                    name: fullName,
+                    address: address,
+                    city: city,
+                    zipCode: zipCode
                 }
             };
+            
+            // Show loading state
+            placeOrderBtn.textContent = 'Processing...';
+            placeOrderBtn.disabled = true;
             
             // Save order to Firestore
             const orderId = await saveOrder(orderData);
@@ -1854,11 +2067,20 @@
                 // Show confirmation
                 document.getElementById('orderId').textContent = orderId.substring(0, 8);
                 showPage('orderConfirmation');
+                
+                // Reset button state
+                placeOrderBtn.textContent = 'Place Order';
+                placeOrderBtn.disabled = false;
+            } else {
+                // Reset button state on error
+                placeOrderBtn.textContent = 'Place Order';
+                placeOrderBtn.disabled = false;
             }
         }
         
         function showPaymentDetails(method) {
             const paymentDetails = document.getElementById('paymentDetails');
+            if (!paymentDetails) return;
             
             switch(method) {
                 case 'credit':
@@ -1890,7 +2112,7 @@
                         <p>After payment, please upload proof of transaction:</p>
                         <div class="form-group">
                             <label for="proof">Proof of Payment</label>
-                            <input type="file" id="proof" required>
+                            <input type="file" id="proof">
                         </div>
                     `;
                     break;
